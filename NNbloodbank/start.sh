@@ -22,8 +22,8 @@ source .venv/bin/activate
 
 # ── 2. Install Python dependencies ───────────────
 echo "▸ Installing Python dependencies..."
-pip install --quiet --upgrade pip
-pip install --quiet -r requirements.txt
+python -m pip install --quiet --upgrade pip
+python -m pip install --quiet -r requirements.txt
 
 # ── 3. Generate synthetic data ───────────────────
 if [ ! -f "blood_network.db" ]; then

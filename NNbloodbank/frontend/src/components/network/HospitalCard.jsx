@@ -13,7 +13,7 @@ export function HospitalCard({ hospital, isSelected, onClick }) {
       )}
     >
       <div className="flex items-start justify-between gap-3">
-        <div className="flex items-start gap-3">
+        <div className="flex items-start gap-3 min-w-0">
           <div className={cn(
             'flex h-10 w-10 shrink-0 items-center justify-center rounded-xl',
             hospital.status === 'critical' ? 'bg-critical/10' :

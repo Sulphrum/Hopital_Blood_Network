@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, createContext, useContext } from 'react'
 
 export function useAsyncData(fetchFn, deps = [], options = {}) {
   const { refreshIntervalMs } = options
@@ -34,7 +34,9 @@ export function useAsyncData(fetchFn, deps = [], options = {}) {
   return { data, loading, error, refetch }
 }
 
-export function useAuth() {
+const AuthContext = createContext(null)
+
+export function AuthProvider({ children }) {
   const [isAuthenticated, setIsAuthenticated] = useState(
     () =>
       localStorage.getItem('jeevansetu_auth') === 'true' &&
@@ -43,7 +45,7 @@ export function useAuth() {
 
   const login = ({ hospitalId, email, name } = {}) => {
     localStorage.setItem('jeevansetu_auth', 'true')
-    if (hospitalId) localStorage.setItem('jeevansetu_hospital_id', String(hospitalId))
+    localStorage.setItem('jeevansetu_hospital_id', String(hospitalId || '1'))
     if (email) localStorage.setItem('jeevansetu_email', email)
     if (name) localStorage.setItem('jeevansetu_user_name', name)
     setIsAuthenticated(true)
@@ -54,8 +56,21 @@ export function useAuth() {
     localStorage.removeItem('jeevansetu_hospital_id')
     localStorage.removeItem('jeevansetu_email')
     localStorage.removeItem('jeevansetu_user_name')
+    localStorage.removeItem('jeevansetu_token')
     setIsAuthenticated(false)
   }
 
-  return { isAuthenticated, login, logout }
+  return (
+    <AuthContext.Provider value={{ isAuthenticated, login, logout }}>
+      {children}
+    </AuthContext.Provider>
+  )
+}
+
+export function useAuth() {
+  const context = useContext(AuthContext)
+  if (!context) {
+    throw new Error('useAuth must be used within an AuthProvider')
+  }
+  return context
 }

@@ -14,6 +14,7 @@ from models import (
     BloodBagStatus,
     BloodType,
     Hospital,
+    User,
     StockSnapshot,
     create_database,
     get_session_factory,
@@ -353,6 +354,14 @@ def generate_blood_bags(session, rng: np.random.Generator, simulation_end: date)
             )
 
 
+def hash_password(password: str) -> str:
+    import hashlib
+    import os
+    salt = os.urandom(16)
+    pwd_hash = hashlib.pbkdf2_hmac('sha256', password.encode(), salt, 100000)
+    return f"{salt.hex()}:{pwd_hash.hex()}"
+
+
 def main() -> None:
     rng = np.random.default_rng(RANDOM_SEED)
     end_date = date.today()
@@ -364,6 +373,16 @@ def main() -> None:
         stock_df = generate_stock_history(session, rng, start_date)
         session.flush()
         generate_blood_bags(session, rng, end_date)
+        
+        # Seed default user
+        demo_user = User(
+            name="Blood Bank Manager",
+            email="manager@jeevansetu.demo",
+            password_hash=hash_password("password123"),
+            hospital_id=1
+        )
+        session.add(demo_user)
+        
         session.commit()
 
     stock_df.to_csv(OUTPUT_CSV, index=False)

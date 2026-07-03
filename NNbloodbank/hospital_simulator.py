@@ -31,7 +31,34 @@ EVENTS = [
 ]
 
 
-def post_stock_update(api_base: str, event: dict[str, object]) -> tuple[int, dict[str, object]]:
+def login_and_get_token(api_base: str) -> str | None:
+    payload = json.dumps(
+        {
+            "email": "manager@jeevansetu.demo",
+            "password": "password123",
+        }
+    ).encode("utf-8")
+    request = urllib.request.Request(
+        f"{api_base.rstrip('/')}/auth/login",
+        data=payload,
+        headers={
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+        },
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=10) as response:
+            body = response.read().decode("utf-8")
+            data = json.loads(body)
+            if data.get("success"):
+                return data.get("token")
+    except Exception as exc:
+        print(f"Login failed: {exc}")
+    return None
+
+
+def post_stock_update(api_base: str, token: str, event: dict[str, object]) -> tuple[int, dict[str, object]]:
     payload = json.dumps(
         {
             "hospital_id": event["hospital_id"],
@@ -39,13 +66,16 @@ def post_stock_update(api_base: str, event: dict[str, object]) -> tuple[int, dic
             "new_count": event["new_count"],
         }
     ).encode("utf-8")
+    headers = {
+        "Accept": "application/json",
+        "Content-Type": "application/json",
+    }
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
     request = urllib.request.Request(
         f"{api_base.rstrip('/')}/stock/update",
         data=payload,
-        headers={
-            "Accept": "application/json",
-            "Content-Type": "application/json",
-        },
+        headers=headers,
         method="POST",
     )
 
@@ -55,11 +85,18 @@ def post_stock_update(api_base: str, event: dict[str, object]) -> tuple[int, dic
 
 
 def run(api_base: str, delay_seconds: float) -> int:
+    print(f"Hospital simulator authenticating with {api_base.rstrip('/')}...")
+    token = login_and_get_token(api_base)
+    if not token:
+        print("Failed to authenticate hospital simulator. Ensure FastAPI is running and database is seeded.")
+        return 1
+    print("Authentication successful.")
+
     print(f"Hospital simulator sending {len(EVENTS)} events to {api_base.rstrip('/')}")
     for event in EVENTS:
         print(f"\nSending update: {event['label']}")
         try:
-            status, response_body = post_stock_update(api_base, event)
+            status, response_body = post_stock_update(api_base, token, event)
         except urllib.error.HTTPError as exc:
             body = exc.read().decode("utf-8")
             print(f"  Status: {exc.code} | {body}")

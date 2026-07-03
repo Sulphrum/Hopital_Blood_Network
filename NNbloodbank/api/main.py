@@ -7,7 +7,7 @@ from pathlib import Path
 
 import numpy as np
 import torch
-from fastapi import Depends, FastAPI, HTTPException, Query
+from fastapi import Depends, FastAPI, HTTPException, Query, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
@@ -20,6 +20,7 @@ from models import (
     BloodBagStatus,
     BloodType,
     Hospital,
+    User,
     StockSnapshot,
     TransferStatus,
     TransferSuggestion,
@@ -50,6 +51,13 @@ from .schemas import (
     StockUpdateResponse,
     TransferSuggestionItem,
     TransferSuggestionResponse,
+    UserResponse,
+    UserSignupRequest,
+    UserLoginRequest,
+    AuthResponse,
+    ProfileUpdateRequest,
+    ProfileUpdateResponse,
+    ChangePasswordRequest,
 )
 
 
@@ -111,9 +119,84 @@ if STATIC_DIR.exists():
     app.mount("/app", SPAStaticFiles(directory=STATIC_DIR, html=True), name="web_app")
 
 
+# Hashing & JWT Helpers
+import hashlib
+import os
+import hmac
+import base64
+import json
+import time
+from fastapi import Header
+
+JWT_SECRET = "supersecretkeychangebeforeproduction"
+
+def hash_password(password: str) -> str:
+    salt = os.urandom(16)
+    pwd_hash = hashlib.pbkdf2_hmac('sha256', password.encode(), salt, 100000)
+    return f"{salt.hex()}:{pwd_hash.hex()}"
+
+def verify_password(password: str, hashed_password: str) -> bool:
+    try:
+        salt_hex, hash_hex = hashed_password.split(':')
+        salt = bytes.fromhex(salt_hex)
+        expected_hash = bytes.fromhex(hash_hex)
+        pwd_hash = hashlib.pbkdf2_hmac('sha256', password.encode(), salt, 100000)
+        return hmac.compare_digest(pwd_hash, expected_hash)
+    except Exception:
+        return False
+
+def base64url_encode(data: bytes) -> str:
+    return base64.urlsafe_b64encode(data).rstrip(b'=').decode('utf-8')
+
+def base64url_decode(data: str) -> bytes:
+    padding = '=' * (4 - (len(data) % 4))
+    return base64.urlsafe_b64decode(data + padding)
+
+def create_jwt(payload: dict) -> str:
+    header = {"alg": "HS256", "typ": "JWT"}
+    header_b64 = base64url_encode(json.dumps(header).encode())
+    payload_b64 = base64url_encode(json.dumps(payload).encode())
+    signature = hmac.new(JWT_SECRET.encode(), f"{header_b64}.{payload_b64}".encode(), hashlib.sha256).digest()
+    signature_b64 = base64url_encode(signature)
+    return f"{header_b64}.{payload_b64}.{signature_b64}"
+
+def verify_jwt(token: str) -> dict | None:
+    try:
+        parts = token.split('.')
+        if len(parts) != 3:
+            return None
+        header_b64, payload_b64, signature_b64 = parts
+        expected_sig = hmac.new(JWT_SECRET.encode(), f"{header_b64}.{payload_b64}".encode(), hashlib.sha256).digest()
+        actual_sig = base64url_decode(signature_b64)
+        if not hmac.compare_digest(expected_sig, actual_sig):
+            return None
+        payload = json.loads(base64url_decode(payload_b64).decode('utf-8'))
+        if "exp" in payload and payload["exp"] < time.time():
+            return None
+        return payload
+    except Exception:
+        return None
+
 def get_db():
     with SessionLocal() as session:
         yield session
+
+def get_current_user(authorization: str | None = Header(None), session: Session = Depends(get_db)) -> User:
+    if not authorization:
+        raise HTTPException(status_code=401, detail="Missing authorization header")
+    if not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Invalid token scheme")
+    token = authorization.split(" ")[1]
+    payload = verify_jwt(token)
+    if not payload:
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
+    email = payload.get("sub")
+    if not email:
+        raise HTTPException(status_code=401, detail="Invalid token claims")
+    user = session.scalar(select(User).where(User.email == email))
+    if not user:
+        raise HTTPException(status_code=401, detail="User not found")
+    return user
 
 
 def parse_blood_type(value: str) -> BloodType:
@@ -156,13 +239,126 @@ class TransferCandidate:
 
 
 
+@app.post("/auth/signup", response_model=AuthResponse)
+def auth_signup(request: UserSignupRequest, session: Session = Depends(get_db)):
+    existing_user = session.scalar(select(User).where(User.email == request.email))
+    if existing_user:
+        return AuthResponse(success=False, message="Email already registered")
+
+    hospital = session.get(Hospital, request.hospital_id)
+    if not hospital:
+        return AuthResponse(success=False, message=f"Hospital {request.hospital_id} not found")
+
+    hashed_pwd = hash_password(request.password)
+    user = User(
+        name=request.name,
+        email=request.email,
+        password_hash=hashed_pwd,
+        hospital_id=request.hospital_id
+    )
+    session.add(user)
+    session.commit()
+    session.refresh(user)
+
+    payload = {
+        "sub": user.email,
+        "name": user.name,
+        "hospital_id": user.hospital_id,
+        "exp": time.time() + 86400 * 30
+    }
+    token = create_jwt(payload)
+
+    user_res = UserResponse(
+        id=user.id,
+        name=user.name,
+        email=user.email,
+        hospital_id=user.hospital_id
+    )
+    return AuthResponse(success=True, user=user_res, token=token)
+
+
+@app.post("/auth/login", response_model=AuthResponse)
+def auth_login(request: UserLoginRequest, session: Session = Depends(get_db)):
+    user = session.scalar(select(User).where(User.email == request.email))
+    if not user or not verify_password(request.password, user.password_hash):
+        return AuthResponse(success=False, message="Invalid email or password")
+
+    payload = {
+        "sub": user.email,
+        "name": user.name,
+        "hospital_id": user.hospital_id,
+        "exp": time.time() + 86400 * 30
+    }
+    token = create_jwt(payload)
+
+    user_res = UserResponse(
+        id=user.id,
+        name=user.name,
+        email=user.email,
+        hospital_id=user.hospital_id
+    )
+    return AuthResponse(success=True, user=user_res, token=token)
+
+
+@app.get("/auth/profile", response_model=UserResponse)
+def auth_profile(current_user: User = Depends(get_current_user)):
+    return UserResponse(
+        id=current_user.id,
+        name=current_user.name,
+        email=current_user.email,
+        hospital_id=current_user.hospital_id
+    )
+
+
+@app.put("/auth/profile", response_model=ProfileUpdateResponse)
+def update_profile_endpoint(request: ProfileUpdateRequest, session: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    if request.name is not None:
+        current_user.name = request.name
+    if request.email is not None:
+        if request.email != current_user.email:
+            existing = session.scalar(select(User).where(User.email == request.email))
+            if existing:
+                raise HTTPException(status_code=400, detail="Email already registered")
+            current_user.email = request.email
+
+    session.commit()
+    session.refresh(current_user)
+
+    payload = {
+        "sub": current_user.email,
+        "name": current_user.name,
+        "hospital_id": current_user.hospital_id,
+        "exp": time.time() + 86400 * 30
+    }
+    token = create_jwt(payload)
+
+    user_res = UserResponse(
+        id=current_user.id,
+        name=current_user.name,
+        email=current_user.email,
+        hospital_id=current_user.hospital_id
+    )
+    return ProfileUpdateResponse(success=True, user=user_res, token=token)
+
+
+@app.post("/auth/change-password")
+def change_password_endpoint(request: ChangePasswordRequest, session: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    if not verify_password(request.current_password, current_user.password_hash):
+        raise HTTPException(status_code=400, detail="Incorrect current password")
+
+    current_user.password_hash = hash_password(request.new_password)
+    session.commit()
+    return {"success": True, "message": "Password updated successfully"}
+
+
+
 @app.get("/hospitals", response_model=list[HospitalResponse])
 def list_hospitals(session: Session = Depends(get_db)):
     return session.scalars(select(Hospital).order_by(Hospital.id)).all()
 
 
 @app.get("/hospitals/{hospital_id}/stock", response_model=list[StockItem])
-def current_stock(hospital_id: int, session: Session = Depends(get_db)):
+def current_stock(hospital_id: int, session: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     require_hospital(session, hospital_id)
 
     latest_per_type = (
@@ -197,6 +393,7 @@ def stock_history(
     days: int = Query(default=14, ge=1, le=365),
     blood_type: BloodTypeLiteral | None = None,
     session: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     require_hospital(session, hospital_id)
     latest_timestamp = session.scalar(
@@ -228,8 +425,67 @@ def stock_history(
     ]
 
 
+def check_deficiency_and_trigger_email(hospital_id: int, blood_type: BloodType, new_count: int):
+    threshold = CRITICAL_THRESHOLDS[blood_type.value]
+    if new_count >= threshold:
+        return
+
+    print(f"[DEFICIENCY CHECK] Hospital {hospital_id} is deficient in {blood_type.value}: {new_count} < {threshold}")
+
+    with SessionLocal() as session:
+        deficient_hospital = session.get(Hospital, hospital_id)
+        if not deficient_hospital:
+            return
+
+        stock_lookup = latest_stock_lookup(session)
+        
+        rich_hospital_id = None
+        rich_stock = -1
+        
+        for key, count in stock_lookup.items():
+            h_id, b_type = key
+            if h_id == hospital_id or b_type != blood_type:
+                continue
+            if count > rich_stock:
+                rich_stock = count
+                rich_hospital_id = h_id
+        
+        if rich_hospital_id is None:
+            print(f"[DEFICIENCY CHECK] No other hospital found in network to request from.")
+            return
+            
+        rich_hospital = session.get(Hospital, rich_hospital_id)
+        if not rich_hospital:
+            return
+
+        rich_managers = session.scalars(
+            select(User).where(User.hospital_id == rich_hospital.id)
+        ).all()
+        
+        recipient_emails = [m.email for m in rich_managers if m.email]
+        if not recipient_emails:
+            recipient_emails = [f"bloodbank-{rich_hospital.id}@jeevansetu.demo"]
+
+        # Import locally inside the task to prevent circular imports
+        from .emails import send_transfer_request_email
+        send_transfer_request_email(
+            deficient_name=deficient_hospital.name,
+            rich_name=rich_hospital.name,
+            blood_type=blood_type.value,
+            deficient_stock=new_count,
+            rich_stock=rich_stock,
+            threshold=threshold,
+            recipient_emails=recipient_emails
+        )
+
+
 @app.post("/stock/update", response_model=StockUpdateResponse)
-def update_stock(request: StockUpdateRequest, session: Session = Depends(get_db)):
+def update_stock(
+    request: StockUpdateRequest,
+    background_tasks: BackgroundTasks,
+    session: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
     require_hospital(session, request.hospital_id)
     blood_type = parse_blood_type(request.blood_type)
 
@@ -242,12 +498,20 @@ def update_stock(request: StockUpdateRequest, session: Session = Depends(get_db)
     session.add(snapshot)
     session.commit()
 
+    background_tasks.add_task(
+        check_deficiency_and_trigger_email,
+        request.hospital_id,
+        blood_type,
+        request.new_count
+    )
+
     return StockUpdateResponse(
         hospital_id=request.hospital_id,
         blood_type=request.blood_type,
         count=request.new_count,
         message="Stock snapshot inserted",
     )
+
 
 
 def inventory_status_from_buckets(buckets: InventoryExpiryBuckets) -> str:
@@ -273,6 +537,7 @@ def stock_status_from_count(blood_type: BloodType, count: int) -> str:
 def inventory_expiry(
     hospital_id: int | None = Query(default=None, ge=1),
     session: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     selected_hospital_id = hospital_id
     if selected_hospital_id is not None:
@@ -737,13 +1002,13 @@ def refresh_transfer_suggestions(
 
 
 @app.get("/hospitals/{hospital_id}/forecast", response_model=list[ForecastItem])
-def hospital_forecast(hospital_id: int, session: Session = Depends(get_db)):
+def hospital_forecast(hospital_id: int, session: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     hospital = require_hospital(session, hospital_id)
     return forecast_for_hospital(hospital, session)
 
 
 @app.get("/forecast/network", response_model=NetworkForecastResponse)
-def network_forecast(session: Session = Depends(get_db)):
+def network_forecast(session: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     # Fine for hackathon scale. At real network scale this should batch model
     # inference and cache repeated dashboard reads.
     hospitals = session.scalars(select(Hospital).order_by(Hospital.id)).all()
@@ -757,6 +1022,7 @@ def network_forecast(session: Session = Depends(get_db)):
 def transfer_suggestions(
     near_expiry_days: int = Query(default=NEAR_EXPIRY_DAYS, ge=1, le=21),
     session: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     suggestions = refresh_transfer_suggestions(
         session,

@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, Link } from 'react-router-dom'
 import { motion } from 'framer-motion'
-import { Building2, Droplets, Mail, Lock, Eye, EyeOff } from 'lucide-react'
+import { Building2, Droplets, Mail, Lock, Eye, EyeOff, ChevronDown } from 'lucide-react'
+import { LoginHeroPanel } from '@/components/auth/LoginHeroPanel'
 import { Button } from '@/components/ui/Button'
 import { apiGet } from '@/services/api'
 import { login } from '@/services/auth'
@@ -10,8 +11,8 @@ import { useAuth } from '@/hooks'
 export default function LoginPage() {
   const navigate = useNavigate()
   const { login: setAuth } = useAuth()
-  const [email, setEmail] = useState('manager@jeevansetu.demo')
-  const [password, setPassword] = useState('password123')
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
   const [hospitals, setHospitals] = useState([])
   const [hospitalId, setHospitalId] = useState(localStorage.getItem('jeevansetu_hospital_id') || '')
   const [showPassword, setShowPassword] = useState(false)
@@ -38,10 +39,31 @@ export default function LoginPage() {
     try {
       const result = await login({ email, password, hospitalId })
       if (result.success) {
-        setAuth({ hospitalId, email, name: result.user?.name })
+        setAuth({ hospitalId: hospitalId || result.user?.hospital?.id, email, name: result.user?.name })
         navigate('/dashboard')
       } else {
         setError(result.message || 'Login failed')
+      }
+    } catch {
+      setError('An error occurred. Please try again.')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleDemoLogin = async () => {
+    setLoading(true)
+    setError('')
+    try {
+      const demoEmail = 'manager@jeevansetu.demo'
+      const demoPassword = 'password123'
+      const demoHospitalId = '1'
+      const result = await login({ email: demoEmail, password: demoPassword, hospitalId: demoHospitalId })
+      if (result.success) {
+        setAuth({ hospitalId: demoHospitalId, email: demoEmail, name: result.user?.name })
+        navigate('/dashboard')
+      } else {
+        setError(result.message || 'Demo login failed')
       }
     } catch {
       setError('An error occurred. Please try again.')
@@ -82,11 +104,13 @@ export default function LoginPage() {
             <div>
               <label className="mb-2 block text-sm font-medium text-text">Hospital</label>
               <div className="relative">
-                <Building2 className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-text-light" />
+                <div className="pointer-events-none absolute inset-y-0 left-0 flex w-11 items-center justify-center">
+                  <Building2 className="h-4 w-4 text-text-light" />
+                </div>
                 <select
                   value={hospitalId}
                   onChange={(e) => setHospitalId(e.target.value)}
-                  className="h-12 w-full rounded-xl border border-gray-200 bg-white pl-10 pr-4 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+                  className="h-12 w-full appearance-none rounded-xl border border-gray-200 bg-white pl-11 pr-10 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
                   required
                 >
                   {hospitals.map((hospital) => (
@@ -95,6 +119,7 @@ export default function LoginPage() {
                     </option>
                   ))}
                 </select>
+                <ChevronDown className="pointer-events-none absolute right-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-text-light" />
               </div>
             </div>
 
@@ -148,53 +173,29 @@ export default function LoginPage() {
             <Button type="submit" className="w-full" size="lg" disabled={loading}>
               {loading ? 'Signing in...' : 'Sign In'}
             </Button>
+
+            <Button
+              type="button"
+              variant="secondary"
+              className="w-full"
+              size="lg"
+              onClick={handleDemoLogin}
+              disabled={loading}
+            >
+              Log in as Demo
+            </Button>
           </form>
 
-          <p className="mt-8 text-center text-xs text-text-light">
-            Demo credentials pre-filled. Any email/password will work.
+          <p className="mt-8 text-center text-sm text-text-muted">
+            Don't have an account?{' '}
+            <Link to="/signup" className="font-semibold text-primary hover:underline">
+              Sign Up
+            </Link>
           </p>
         </motion.div>
       </div>
 
-      <div className="hidden lg:flex lg:flex-1 items-center justify-center bg-[#FEF2F2] p-12">
-        <motion.div
-          initial={{ opacity: 0, scale: 0.95 }}
-          animate={{ opacity: 1, scale: 1 }}
-          transition={{ duration: 0.6, delay: 0.2 }}
-          className="max-w-lg text-center"
-        >
-          <div className="mx-auto mb-8 flex h-48 w-48 items-center justify-center rounded-full bg-primary/10">
-            <svg viewBox="0 0 200 200" className="h-36 w-36" fill="none">
-              <rect x="60" y="40" width="80" height="120" rx="12" fill="#C62828" opacity="0.15" />
-              <rect x="70" y="50" width="60" height="100" rx="8" fill="#C62828" opacity="0.3" />
-              <path d="M100 70 C100 70 85 85 85 95 C85 105 92 110 100 110 C108 110 115 105 115 95 C115 85 100 70 100 70Z" fill="#C62828" />
-              <rect x="95" y="110" width="10" height="40" rx="3" fill="#C62828" opacity="0.6" />
-              <circle cx="100" cy="155" r="8" fill="#EF5350" />
-              <path d="M40 100 Q60 80 80 100" stroke="#2E7D32" strokeWidth="3" fill="none" opacity="0.5" />
-              <path d="M120 100 Q140 80 160 100" stroke="#2E7D32" strokeWidth="3" fill="none" opacity="0.5" />
-            </svg>
-          </div>
-          <h2 className="text-2xl font-bold text-text">Saving Lives Through Smart Blood Management</h2>
-          <p className="mt-4 text-text-muted leading-relaxed">
-            Connect with hospitals across the network. Predict shortages before they happen.
-            Optimize transfers with AI-powered insights.
-          </p>
-          <div className="mt-8 flex justify-center gap-8">
-            <div className="text-center">
-              <p className="text-2xl font-bold text-primary">6</p>
-              <p className="text-sm text-text-muted">Hospitals</p>
-            </div>
-            <div className="text-center">
-              <p className="text-2xl font-bold text-primary">1,500+</p>
-              <p className="text-sm text-text-muted">Blood Units</p>
-            </div>
-            <div className="text-center">
-              <p className="text-2xl font-bold text-primary">87%</p>
-              <p className="text-sm text-text-muted">AI Accuracy</p>
-            </div>
-          </div>
-        </motion.div>
-      </div>
+      <LoginHeroPanel />
     </div>
   )
 }
