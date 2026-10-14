@@ -78,6 +78,18 @@ class Hospital(Base):
     stock_snapshots: Mapped[list["StockSnapshot"]] = relationship(back_populates="hospital")
 
 
+class User(Base):
+    __tablename__ = "users"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
+    email: Mapped[str] = mapped_column(String(120), unique=True, nullable=False)
+    password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
+    hospital_id: Mapped[int] = mapped_column(ForeignKey("hospitals.id"), nullable=False)
+
+    hospital: Mapped[Hospital] = relationship()
+
+
 class BloodBag(Base):
     __tablename__ = "blood_bags"
 

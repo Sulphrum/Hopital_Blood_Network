@@ -1,3 +1,4 @@
+import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import {
@@ -74,15 +75,22 @@ const BT_STATUS_PILL = {
   unknown: 'bg-gray-100 text-gray-400',
 }
 
-function BloodTypeRow({ bloodType, count, threshold, status, chartData }) {
+function BloodTypeRow({ bloodType, count, threshold, status, isSelected, onSelect, chartData }) {
   const isAlert = status === 'critical' || status === 'warning'
   const color = status === 'critical' ? '#D32F2F' : status === 'warning' ? '#FB8C00' : '#2E7D32'
 
   return (
-    <div className={cn(
-      'flex items-center gap-3 rounded-xl px-3 py-2.5 transition-colors',
-      isAlert ? 'bg-white shadow-sm border border-gray-100' : 'hover:bg-gray-50/60'
-    )}>
+    <div 
+      className={cn(
+        'flex items-center gap-3 rounded-xl px-3 py-2.5 transition-colors',
+        isAlert 
+          ? (isSelected 
+              ? 'bg-gray-100 shadow-sm border border-gray-300 cursor-default' 
+              : 'bg-white shadow-sm border border-gray-100 hover:bg-gray-50/80 cursor-pointer') 
+          : 'hover:bg-gray-50/60'
+      )}
+      onClick={() => isAlert && onSelect(bloodType)}
+    >
       {/* Blood type badge */}
       <span className={cn('shrink-0 rounded-lg px-2.5 py-1 text-xs font-bold tracking-wide', BT_STATUS_PILL[status])}>
         {bloodType}
@@ -108,18 +116,11 @@ function BloodTypeRow({ bloodType, count, threshold, status, chartData }) {
           {count ?? '—'} u
         </span>
       </div>
-
-      {/* Mini sparkline for alert types */}
-      {isAlert && chartData.length > 0 && (
-        <div className="w-16 shrink-0">
-          <MiniAreaChart data={chartData} dataKey="value" color={color} height={30} />
-        </div>
-      )}
     </div>
   )
 }
 
-function ShortageAlertBody({ shortageAlert }) {
+function ShortageAlertBody({ shortageAlert, selectedBt, setSelectedBt }) {
   if (!shortageAlert) return null
   const { overallStatus, alertBloodTypes, bloodTypes, totalUnits } = shortageAlert
   const cfg = STATUS_CONFIG[overallStatus] || STATUS_CONFIG.healthy
@@ -160,7 +161,12 @@ function ShortageAlertBody({ shortageAlert }) {
           </p>
           <div className="max-h-56 overflow-y-auto space-y-1.5 pr-0.5 scrollbar-thin scrollbar-thumb-gray-200 scrollbar-track-transparent">
             {alertBloodTypes.map((bt) => (
-              <BloodTypeRow key={bt.bloodType} {...bt} />
+              <BloodTypeRow 
+                key={bt.bloodType} 
+                {...bt} 
+                isSelected={selectedBt === bt.bloodType}
+                onSelect={setSelectedBt}
+              />
             ))}
           </div>
         </div>
@@ -185,12 +191,29 @@ function ShortageAlertBody({ shortageAlert }) {
 export default function DashboardPage() {
   const navigate = useNavigate()
   const { data, loading } = useAsyncData(getDashboardData, [], { refreshIntervalMs: 4000 })
+  const [selectedBt, setSelectedBt] = useState(null)
+
+  useEffect(() => {
+    if (data?.shortageAlerts?.alertBloodTypes?.length > 0) {
+      if (!selectedBt || !data.shortageAlerts.alertBloodTypes.find(bt => bt.bloodType === selectedBt)) {
+        setSelectedBt(data.shortageAlerts.alertBloodTypes[0].bloodType)
+      }
+    } else {
+      setSelectedBt(null)
+    }
+  }, [data, selectedBt])
 
   if (loading || !data) return <PageLoader />
 
   const { stats, activity, forecast, inventory, shortageAlerts } = data
-  const hasCritical = stats.criticalAlerts.value > 0
   const myHospitalStatus = shortageAlerts?.overallStatus || 'healthy'
+  const isMyHospitalCritical = myHospitalStatus === 'critical'
+  const selectedBtData = selectedBt ? shortageAlerts?.alertBloodTypes?.find(bt => bt.bloodType === selectedBt) : null
+  
+  // Calculate critical alerts specifically for this hospital
+  const myCriticalCount = shortageAlerts?.alertBloodTypes?.filter(
+    bt => bt.status === 'critical' || shortageAlerts?.forecastCritical?.has(bt.bloodType)
+  ).length || 0
 
   return (
     <div className="page-container">
@@ -199,7 +222,7 @@ export default function DashboardPage() {
         description="Overview of your blood bank operations and network status"
       />
 
-      {hasCritical && (
+      {isMyHospitalCritical && myCriticalCount > 0 && (
         <motion.div
           initial={{ opacity: 0, y: -4 }}
           animate={{ opacity: 1, y: 0 }}
@@ -211,10 +234,10 @@ export default function DashboardPage() {
             </div>
             <div>
               <p className="text-sm font-semibold text-critical">
-                {stats.criticalAlerts.value} critical alert{stats.criticalAlerts.value !== 1 ? 's' : ''} require attention
+                {myCriticalCount} critical alert{myCriticalCount !== 1 ? 's' : ''} require attention
               </p>
               <p className="text-xs text-text-muted">
-                {forecast.bloodType} stock projected critical in {forecast.criticalInHours} hours
+                {selectedBtData?.bloodType || 'Multiple blood types'} stock requires immediate attention
               </p>
             </div>
           </div>
@@ -279,36 +302,40 @@ export default function DashboardPage() {
                 {myHospitalStatus === 'critical' ? 'Shortage Alert' :
                  myHospitalStatus === 'warning' ? 'Low Stock Alert' : 'Stock Outlook'}
               </CardTitle>
-              <span className={cn(
-                'rounded-full px-2.5 py-0.5 text-xs font-bold',
-                myHospitalStatus === 'critical' ? 'bg-critical/10 text-critical' :
-                myHospitalStatus === 'warning' ? 'bg-warning/10 text-warning' : 'bg-healthy/10 text-healthy'
-              )}>
-                {myHospitalStatus}
-              </span>
             </div>
             <p className="mt-1 text-xs text-text-muted">Your hospital's live blood stock status</p>
           </CardHeader>
 
           <CardContent className="flex flex-col min-h-0 pt-0 space-y-4">
             {/* Per-blood-type alert body */}
-            <ShortageAlertBody shortageAlert={shortageAlerts} />
+            <ShortageAlertBody 
+              shortageAlert={shortageAlerts} 
+              selectedBt={selectedBt} 
+              setSelectedBt={setSelectedBt} 
+            />
 
-            {/* Mini trend chart for the most critical blood type */}
-            {forecast.criticalInHours && (
+            {/* Mini trend chart for the selected blood type (only if not healthy) */}
+            {myHospitalStatus !== 'healthy' && selectedBtData && selectedBtData.chartData && (
               <div className="shrink-0">
-                <p className="metric-label mb-2">{forecast.bloodType} · 48h trend</p>
-                <MiniAreaChart data={forecast.chartData} color="#D32F2F" height={70} />
-                <div className="mt-3 rounded-xl border border-critical/15 bg-critical/[0.04] p-3">
-                  <p className="text-sm font-semibold text-critical">Critical in {forecast.criticalInHours}h</p>
-                  <p className="mt-0.5 text-xs text-text-muted">Stock projected to fall below safe threshold</p>
+                <p className="metric-label mb-2">{selectedBtData.bloodType} · 48h trend</p>
+                <MiniAreaChart data={selectedBtData.chartData} color={selectedBtData.status === 'critical' ? '#D32F2F' : '#FB8C00'} height={70} />
+                <div className={cn("mt-3 rounded-xl border p-3", selectedBtData.status === 'critical' ? 'border-critical/15 bg-critical/[0.04]' : 'border-warning/15 bg-warning/[0.04]')}>
+                  <p className={cn("text-sm font-semibold", selectedBtData.status === 'critical' ? 'text-critical' : 'text-warning')}>
+                    {selectedBtData.status === 'critical' ? 'Critical shortage' : 'Low stock warning'}
+                  </p>
+                  <p className="mt-0.5 text-xs text-text-muted">Stock is projected to remain below safe threshold</p>
                 </div>
               </div>
             )}
 
             <Button
               variant="outline"
-              className="w-full shrink-0"
+              className={cn(
+                'w-full shrink-0',
+                myHospitalStatus === 'healthy' ? 'text-healthy border-healthy/30 hover:bg-healthy/5' :
+                myHospitalStatus === 'warning' ? 'text-warning border-warning/30 hover:bg-warning/5' :
+                'text-critical border-critical/30 hover:bg-critical/5'
+              )}
               onClick={() => navigate('/forecast')}
             >
               View Full Forecast

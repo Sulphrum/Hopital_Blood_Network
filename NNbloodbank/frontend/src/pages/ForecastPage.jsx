@@ -159,8 +159,8 @@ function AiInsightCard({ geminiContext, confidence, criticalInHours }) {
 
           {/* NN Confidence pinned to bottom */}
           <div className="mt-auto pt-6">
-            <div className="inline-flex rounded-xl border border-gray-100 bg-gray-50 px-4 py-2.5 text-sm">
-              <span className="text-text-muted">NN Confidence </span>
+            <div className="inline-flex items-center gap-1 rounded-lg border border-gray-100 bg-gray-50 px-2.5 py-1.5 text-xs font-medium">
+              <span className="text-text-muted">NN Confidence:</span>
               <span className="font-bold text-primary">{confidence}%</span>
             </div>
           </div>

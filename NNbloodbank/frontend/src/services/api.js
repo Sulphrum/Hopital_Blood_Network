@@ -13,12 +13,55 @@ export const CRITICAL_THRESHOLDS = {
 
 export const BLOOD_TYPE_ORDER = ['O+', 'O-', 'A+', 'A-', 'B+', 'B-', 'AB+', 'AB-']
 
+function getAuthHeaders() {
+  const headers = {
+    Accept: 'application/json',
+  }
+  const token = localStorage.getItem('jeevansetu_token')
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`
+  }
+  return headers
+}
+
 export async function apiGet(path) {
   const response = await fetch(`${API_BASE}${path}`, {
-    headers: { Accept: 'application/json' },
+    headers: getAuthHeaders(),
   })
   if (!response.ok) {
     throw new Error(`${path} returned ${response.status}`)
+  }
+  return response.json()
+}
+
+export async function apiPost(path, body) {
+  const headers = getAuthHeaders()
+  headers['Content-Type'] = 'application/json'
+
+  const response = await fetch(`${API_BASE}${path}`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(body),
+  })
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}))
+    throw new Error(errorData.detail || `${path} returned ${response.status}`)
+  }
+  return response.json()
+}
+
+export async function apiPut(path, body) {
+  const headers = getAuthHeaders()
+  headers['Content-Type'] = 'application/json'
+
+  const response = await fetch(`${API_BASE}${path}`, {
+    method: 'PUT',
+    headers,
+    body: JSON.stringify(body),
+  })
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}))
+    throw new Error(errorData.detail || `${path} returned ${response.status}`)
   }
   return response.json()
 }

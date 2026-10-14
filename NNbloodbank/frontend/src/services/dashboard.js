@@ -89,8 +89,21 @@ export async function getShortageAlertData() {
     hospitals.find((h) => String(h.id) === String(selectedId)) || hospitals[0]
   if (!hospital) return null
 
-  const stock = await apiGet(`/hospitals/${hospital.id}/stock`)
+  const [stock, history] = await Promise.all([
+    apiGet(`/hospitals/${hospital.id}/stock`),
+    apiGet(`/hospitals/${hospital.id}/stock/history?days=7`)
+  ])
   const bloodTypeMap = Object.fromEntries(stock.map((s) => [s.blood_type, s.count]))
+  
+  // Group history by blood type
+  const historyMap = {}
+  history.forEach((h) => {
+    if (!historyMap[h.blood_type]) historyMap[h.blood_type] = []
+    historyMap[h.blood_type].push({ 
+      day: new Date(h.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }), 
+      value: h.count 
+    })
+  })
 
   const bloodTypes = BLOOD_TYPE_ORDER.map((bt) => {
     const count = bloodTypeMap[bt] ?? null
@@ -100,16 +113,23 @@ export async function getShortageAlertData() {
     else if (count < threshold) status = 'critical'
     else if (count === threshold) status = 'warning'
 
-    // Sparkline: simple descending sequence ending at current count
-    const chartData = count !== null
-      ? [
-          { day: '-4', value: Math.max(0, count + 4) },
-          { day: '-3', value: Math.max(0, count + 3) },
-          { day: '-2', value: Math.max(0, count + 2) },
-          { day: '-1', value: Math.max(0, count + 1) },
-          { day: 'Now', value: count },
-        ]
-      : []
+    // Use real history from backend if available, otherwise fallback to basic array
+    let chartData = []
+    if (historyMap[bt] && historyMap[bt].length > 0) {
+      chartData = [...historyMap[bt]]
+      // Ensure 'Now' is the last point if today's date isn't exactly the same as 'Now'
+      if (count !== null) {
+        chartData.push({ day: 'Now', value: count })
+      }
+    } else if (count !== null) {
+      chartData = [
+        { day: '-4', value: Math.max(0, count + 4) },
+        { day: '-3', value: Math.max(0, count + 3) },
+        { day: '-2', value: Math.max(0, count + 2) },
+        { day: '-1', value: Math.max(0, count + 1) },
+        { day: 'Now', value: count },
+      ]
+    }
 
     return { bloodType: bt, count, threshold, status, chartData }
   })

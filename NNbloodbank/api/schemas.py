@@ -113,3 +113,47 @@ class TransferSuggestionResponse(BaseModel):
     ranking: list[str]
     count: int
     suggestions: list[TransferSuggestionItem]
+
+
+class UserResponse(BaseModel):
+    id: int
+    name: str
+    email: str
+    hospital_id: int
+
+
+class UserSignupRequest(BaseModel):
+    name: str
+    email: str
+    password: str
+    hospital_id: int
+
+
+class UserLoginRequest(BaseModel):
+    email: str
+    password: str
+
+
+class AuthResponse(BaseModel):
+    success: bool
+    user: UserResponse | None = None
+    token: str | None = None
+    message: str | None = None
+
+
+class ProfileUpdateRequest(BaseModel):
+    name: str | None = None
+    email: str | None = None
+
+
+class ProfileUpdateResponse(BaseModel):
+    success: bool
+    user: UserResponse
+    token: str | None = None
+
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str
+    new_password: str
+
+

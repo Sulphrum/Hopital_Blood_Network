@@ -215,7 +215,7 @@ def main() -> None:
     optimizer = torch.optim.Adam(model.parameters(), lr=0.003)
     train_loader = make_loader(train_dataset, batch_size=32, shuffle=True)
 
-    for epoch in range(1, 101):
+    for epoch in range(1, 2):
         model.train()
         epoch_loss = 0.0
         for features, labels in train_loader:
@@ -226,7 +226,7 @@ def main() -> None:
             optimizer.step()
             epoch_loss += loss.item() * len(labels)
 
-        if epoch in {1, 25, 50, 75, 100}:
+        if epoch in {1}:
             avg_loss = epoch_loss / len(train_dataset.labels)
             print(f"epoch={epoch:03d} train_loss={avg_loss:.4f}")
 

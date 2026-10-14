@@ -1,5 +1,5 @@
 import { delay } from '@/utils'
-import { apiGet } from '@/services/api'
+import { apiGet, apiPost } from '@/services/api'
 
 export function getSelectedHospitalId() {
   return localStorage.getItem('jeevansetu_hospital_id')
@@ -7,7 +7,7 @@ export function getSelectedHospitalId() {
 
 function fallbackHospital(hospital) {
   if (!hospital) return null
-  return {
+  const defaultInfo = {
     id: hospital.id,
     name: hospital.name,
     location: hospital.city,
@@ -22,6 +22,14 @@ function fallbackHospital(hospital) {
     beds: 300,
     bloodBankCapacity: 500,
   }
+
+  const saved = localStorage.getItem(`jeevansetu_hospital_info_${hospital.id}`)
+  if (saved) {
+    try {
+      return { ...defaultInfo, ...JSON.parse(saved) }
+    } catch (e) {}
+  }
+  return defaultInfo
 }
 
 async function selectedHospital() {
@@ -53,20 +61,49 @@ export async function getProfile() {
 }
 
 export async function updateProfile(data) {
-  await delay(500)
-  const profile = await getProfile()
-  return { ...profile, ...data }
+  try {
+    const payload = {}
+    if (data.name !== undefined) payload.name = data.name
+    if (data.email !== undefined) payload.email = data.email
+
+    if (Object.keys(payload).length > 0) {
+      const response = await apiPut('/auth/profile', payload)
+      if (response.success) {
+        localStorage.setItem('jeevansetu_email', response.user.email)
+        localStorage.setItem('jeevansetu_user_name', response.user.name)
+        if (response.token) {
+          localStorage.setItem('jeevansetu_token', response.token)
+        }
+      }
+    }
+
+    if (data.hospital !== undefined && data.hospital !== null) {
+      localStorage.setItem(`jeevansetu_hospital_info_${data.hospital.id}`, JSON.stringify(data.hospital))
+    }
+
+    return getProfile()
+  } catch (error) {
+    throw error
+  }
 }
 
 export async function updateHospitalInfo(data) {
-  await delay(500)
   const hospital = await selectedHospital()
-  return { ...hospital, ...data }
+  const updated = { ...hospital, ...data }
+  localStorage.setItem(`jeevansetu_hospital_info_${hospital.id}`, JSON.stringify(updated))
+  return updated
 }
 
-export async function changePassword() {
-  await delay(500)
-  return { success: true, message: 'Password updated successfully' }
+export async function changePassword(currentPassword, newPassword) {
+  try {
+    const response = await apiPost('/auth/change-password', {
+      current_password: currentPassword,
+      new_password: newPassword,
+    })
+    return response
+  } catch (error) {
+    return { success: false, message: error.message || 'Failed to update password' }
+  }
 }
 
 export async function updatePreferences(preferences) {
@@ -79,18 +116,35 @@ export async function updatePreferences(preferences) {
 }
 
 export async function login(credentials) {
-  await delay(800)
-  if (credentials.email && credentials.password) {
-    if (credentials.hospitalId) {
-      localStorage.setItem('jeevansetu_hospital_id', String(credentials.hospitalId))
+  try {
+    const isSignup = Boolean(credentials.name)
+    const endpoint = isSignup ? '/auth/signup' : '/auth/login'
+
+    const payload = {
+      email: credentials.email,
+      password: credentials.password,
+      hospital_id: Number(credentials.hospitalId || 1),
     }
-    localStorage.setItem('jeevansetu_email', credentials.email)
-    localStorage.setItem('jeevansetu_user_name', credentials.name || 'Blood Bank Manager')
-    return {
-      success: true,
-      user: await getProfile(),
-      token: 'mock-jwt-token',
+    if (isSignup) {
+      payload.name = credentials.name
     }
+
+    const response = await apiPost(endpoint, payload)
+    if (response.success) {
+      localStorage.setItem('jeevansetu_hospital_id', String(response.user.hospital_id))
+      localStorage.setItem('jeevansetu_email', response.user.email)
+      localStorage.setItem('jeevansetu_user_name', response.user.name)
+      localStorage.setItem('jeevansetu_token', response.token)
+
+      return {
+        success: true,
+        user: await getProfile(),
+        token: response.token,
+      }
+    } else {
+      return { success: false, message: response.message || 'Authentication failed' }
+    }
+  } catch (error) {
+    return { success: false, message: error.message || 'Connection or verification error' }
   }
-  return { success: false, message: 'Invalid credentials' }
 }

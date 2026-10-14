@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Building2, Lock, Bell, Sliders } from 'lucide-react'
+import { User as UserIcon, Building2, Lock, Bell } from 'lucide-react'
 import { PageHeader, PageLoader } from '@/components/ui/PageElements'
 import { Button } from '@/components/ui/Button'
 import { Input, Textarea, Toggle, Select } from '@/components/ui/FormElements'
@@ -9,18 +9,19 @@ import { getProfile, updateProfile, changePassword, updatePreferences } from '@/
 import { cn } from '@/utils'
 
 const settingsTabs = [
+  { id: 'profile', label: 'Personal Info', icon: UserIcon },
   { id: 'hospital', label: 'Hospital Info', icon: Building2 },
   { id: 'password', label: 'Change Password', icon: Lock },
   { id: 'notifications', label: 'Notifications', icon: Bell },
-  { id: 'preferences', label: 'Preferences', icon: Sliders },
 ]
 
 export default function ProfilePage() {
   const { data: profile, loading, refetch } = useAsyncData(getProfile)
-  const [activeTab, setActiveTab] = useState('hospital')
+  const [activeTab, setActiveTab] = useState('profile')
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState('')
 
+  const [profileForm, setProfileForm] = useState(null)
   const [hospitalForm, setHospitalForm] = useState(null)
   const [passwordForm, setPasswordForm] = useState({
     current: '',
@@ -31,16 +32,36 @@ export default function ProfilePage() {
 
   if (loading || !profile) return <PageLoader />
 
+  const userProfile = profileForm || { name: profile.name, email: profile.email }
   const hospital = hospitalForm || profile.hospital
   const preferences = prefs || profile.preferences
 
+  const handleSaveProfile = async () => {
+    setSaving(true)
+    try {
+      await updateProfile({ name: userProfile.name, email: userProfile.email })
+      setMessage('Personal profile updated successfully')
+      refetch()
+    } catch (err) {
+      setMessage(err.message || 'Failed to update profile')
+    } finally {
+      setSaving(false)
+      setTimeout(() => setMessage(''), 3000)
+    }
+  }
+
   const handleSaveHospital = async () => {
     setSaving(true)
-    await updateProfile({ hospital: hospitalForm })
-    setMessage('Hospital information updated successfully')
-    setSaving(false)
-    refetch()
-    setTimeout(() => setMessage(''), 3000)
+    try {
+      await updateProfile({ hospital })
+      setMessage('Hospital information updated successfully')
+      refetch()
+    } catch (err) {
+      setMessage(err.message || 'Failed to update hospital info')
+    } finally {
+      setSaving(false)
+      setTimeout(() => setMessage(''), 3000)
+    }
   }
 
   const handleChangePassword = async () => {
@@ -49,9 +70,13 @@ export default function ProfilePage() {
       return
     }
     setSaving(true)
-    await changePassword()
-    setMessage('Password updated successfully')
-    setPasswordForm({ current: '', new: '', confirm: '' })
+    const res = await changePassword(passwordForm.current, passwordForm.new)
+    if (res.success) {
+      setMessage('Password updated successfully')
+      setPasswordForm({ current: '', new: '', confirm: '' })
+    } else {
+      setMessage(res.message || 'Failed to update password')
+    }
     setSaving(false)
     setTimeout(() => setMessage(''), 3000)
   }
@@ -110,6 +135,33 @@ export default function ProfilePage() {
         </Card>
 
         <div className="lg:col-span-3">
+          {activeTab === 'profile' && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Personal Information</CardTitle>
+                <p className="text-sm text-text-muted">Update your personal account details</p>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <Input
+                  label="Full Name"
+                  value={userProfile.name}
+                  onChange={(e) => setProfileForm({ ...userProfile, name: e.target.value })}
+                />
+                <Input
+                  label="Email Address"
+                  type="email"
+                  value={userProfile.email}
+                  onChange={(e) => setProfileForm({ ...userProfile, email: e.target.value })}
+                />
+                <div className="section-divider flex justify-end pt-6">
+                  <Button onClick={handleSaveProfile} disabled={saving}>
+                    {saving ? 'Saving...' : 'Save Changes'}
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
           {activeTab === 'hospital' && (
             <Card>
               <CardHeader>
@@ -201,12 +253,6 @@ export default function ProfilePage() {
                   onChange={(v) => setPrefs({ ...preferences, emailNotifications: v })}
                 />
                 <Toggle
-                  label="SMS Alerts"
-                  description="Receive critical alerts via SMS"
-                  checked={preferences.smsAlerts}
-                  onChange={(v) => setPrefs({ ...preferences, smsAlerts: v })}
-                />
-                <Toggle
                   label="Critical Alerts Only"
                   description="Only notify for critical shortages"
                   checked={preferences.criticalAlertsOnly}
@@ -214,55 +260,7 @@ export default function ProfilePage() {
                 />
                 <div className="section-divider flex justify-end pt-6">
                   <Button onClick={handleSavePreferences} disabled={saving}>
-                    {saving ? 'Saving...' : 'Save Preferences'}
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-          )}
-
-          {activeTab === 'preferences' && (
-            <Card>
-              <CardHeader>
-                <CardTitle>Application Preferences</CardTitle>
-                <p className="text-sm text-text-muted">Customize your dashboard experience</p>
-              </CardHeader>
-              <CardContent className="divide-y divide-gray-100">
-                <Toggle
-                  label="Dark Mode"
-                  description="Switch to dark theme (coming soon)"
-                  checked={preferences.darkMode}
-                  onChange={(v) => setPrefs({ ...preferences, darkMode: v })}
-                />
-                <div className="py-4">
-                  <Select
-                    label="Language"
-                    value={preferences.language}
-                    onChange={(e) => setPrefs({ ...preferences, language: e.target.value })}
-                    className="max-w-xs"
-                    options={[
-                      { value: 'en', label: 'English' },
-                      { value: 'hi', label: 'Hindi' },
-                      { value: 'mr', label: 'Marathi' },
-                    ]}
-                  />
-                </div>
-                <div className="py-4">
-                  <Select
-                    label="Timezone"
-                    value={preferences.timezone}
-                    onChange={(e) => setPrefs({ ...preferences, timezone: e.target.value })}
-                    className="max-w-xs"
-                    options={[
-                      { value: 'Asia/Kolkata', label: 'Asia/Kolkata (IST)' },
-                      { value: 'Asia/Dubai', label: 'Asia/Dubai (GST)' },
-                      { value: 'UTC', label: 'UTC' },
-                    ]}
-                  />
-                </div>
-                <div className="section-divider flex justify-end pt-6">
-                  <Button onClick={handleSavePreferences} disabled={saving}>
-                    {saving ? 'Saving...' : 'Save Preferences'}
+                    {saving ? 'Saving...' : 'Save Settings'}
                   </Button>
                 </div>
               </CardContent>

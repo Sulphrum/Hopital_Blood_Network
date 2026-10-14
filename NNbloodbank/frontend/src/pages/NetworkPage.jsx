@@ -49,8 +49,8 @@ export default function NetworkPage() {
         />
       </FilterBar>
 
-      <div className="grid gap-6 lg:grid-cols-5">
-        <div className="lg:col-span-3 space-y-4">
+      <div className="grid gap-6 lg:grid-cols-12">
+        <div className="lg:col-span-7 space-y-4">
           <div className="overflow-hidden rounded-2xl border border-gray-100 bg-white p-1 shadow-card">
             <HospitalMap
               hospitals={filteredHospitals}
@@ -62,7 +62,7 @@ export default function NetworkPage() {
           <MapLegend items={legend} />
         </div>
 
-        <div className="lg:col-span-2 space-y-4">
+        <div className="lg:col-span-5 space-y-4">
           <HospitalDetailPanel hospital={selectedHospital} />
           <div className="space-y-2">
             <h3 className="text-xs font-semibold uppercase tracking-wider text-text-light">
