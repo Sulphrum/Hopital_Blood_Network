@@ -128,7 +128,7 @@ import json
 import time
 from fastapi import Header
 
-JWT_SECRET = "supersecretkeychangebeforeproduction"
+JWT_SECRET = os.environ.get("JWT_SECRET", "supersecretkeychangebeforeproduction")
 
 def hash_password(password: str) -> str:
     salt = os.urandom(16)
