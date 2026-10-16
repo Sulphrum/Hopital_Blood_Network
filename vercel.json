@@ -1,0 +1,7 @@
+{
+  "buildCommand": "cd NNbloodbank/frontend && npm install && npm run build",
+  "outputDirectory": "NNbloodbank/frontend/dist",
+  "rewrites": [
+    { "source": "/(.*)", "destination": "/index.html" }
+  ]
+}
